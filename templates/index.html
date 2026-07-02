@@ -214,6 +214,8 @@
 
         <footer>
             支持的日期格式：YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYYMMDD / YYYY年M月D日
+            <br>
+            月份级命名也支持：5月 / 五月 / 5月份 / 五月份 / 2024年5月 / 2024年五月（取该月最后一天参与排序）
         </footer>
     </div>
 
@@ -255,23 +257,30 @@
                 if (data.parent) {
                     html += `<div class="browser-item parent" data-path="${data.parent}">⬆ 返回上级</div>`;
                 }
-                if (data.dirs.length === 0 && !data.parent) {
-                    html += '<div class="browser-item">没有子目录</div>';
+                if (data.permission_denied) {
+                    html += `<div class="browser-item" style="color:#c5221f">${data.error || '无权限访问该目录'}</div>`;
+                } else if (data.dirs.length === 0) {
+                    html += '<div class="browser-item">没有可访问的子目录</div>';
                 }
                 data.dirs.forEach(d => {
                     html += `<div class="browser-item" data-path="${d.path}">📁 ${d.name}</div>`;
                 });
+                if (data.hint) {
+                    html += `<div class="browser-item" style="color:#b06000;font-size:12px">${data.hint}</div>`;
+                }
                 $('browser-list').innerHTML = html;
                 // 选择当前目录
-                const useCur = document.createElement('div');
-                useCur.className = 'browser-item parent';
-                useCur.style.borderTop = '1px solid #e8eaed';
-                useCur.textContent = '✓ 选择此目录';
-                useCur.addEventListener('click', () => {
-                    $('folder').value = data.current;
-                    browser.classList.add('hidden');
-                });
-                $('browser-list').appendChild(useCur);
+                if (!data.permission_denied) {
+                    const useCur = document.createElement('div');
+                    useCur.className = 'browser-item parent';
+                    useCur.style.borderTop = '1px solid #e8eaed';
+                    useCur.textContent = '✓ 选择此目录';
+                    useCur.addEventListener('click', () => {
+                        $('folder').value = data.current;
+                        browser.classList.add('hidden');
+                    });
+                    $('browser-list').appendChild(useCur);
+                }
 
                 document.querySelectorAll('.browser-item[data-path]').forEach(el => {
                     el.addEventListener('click', () => {
@@ -280,9 +289,6 @@
                         $('browse-btn').click();
                     });
                 });
-                if (!data.parent && data.dirs.length === 0) {
-                    // no-op
-                }
             } catch (e) {
                 $('browser-list').innerHTML = '<div class="browser-item">请求失败</div>';
             }

@@ -11,28 +11,92 @@ from flask import Flask, render_template, request, send_file, jsonify
 
 app = Flask(__name__)
 
-# 支持的日期命名格式：
-#   YYYY-MM-DD  /  YYYY/MM/DD  /  YYYY.MM.DD
-#   YYYYMMDD
-#   YYYY年MM月DD日 / YYYY年M月D日
-DATE_PATTERNS = [
-    r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$',
-    r'^(\d{4})(\d{2})(\d{2})$',
-    r'^(\d{4})年(\d{1,2})月(\d{1,2})日$',
+CN_MONTH_MAP = {
+    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+    '十一': 11, '十二': 12,
+}
+
+FULL_DATE_PATTERNS = [
+    (r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$', 'ymd'),
+    (r'^(\d{4})(\d{2})(\d{2})$', 'ymd'),
+    (r'^(\d{4})年(\d{1,2})月(\d{1,2})日$', 'ymd'),
+]
+
+MONTH_DATE_PATTERNS = [
+    (r'^(\d{4})年(\d{1,2})月$', 'ym_num'),
+    (r'^(\d{4})年([一二三四五六七八九十]{1,3})月$', 'ym_cn'),
+    (r'^(\d{1,2})月$', 'm_num'),
+    (r'^([一二三四五六七八九十]{1,3})月$', 'm_cn'),
+    (r'^(\d{1,2})月份$', 'm_num'),
+    (r'^([一二三四五六七八九十]{1,3})月份$', 'm_cn'),
 ]
 
 
+def _cn_month_to_int(name):
+    return CN_MONTH_MAP.get(name.strip())
+
+
+def _last_day_of_month(y, m):
+    if m == 12:
+        next_y, next_m = y + 1, 1
+    else:
+        next_y, next_m = y, m + 1
+    from datetime import date
+    return (date(next_y, next_m, 1) - date(y, m, 1)).days
+
+
 def parse_sheet_date(sheet_name):
-    """尝试把表名解析成日期。成功返回 datetime，失败返回 None。"""
+    """尝试把表名解析成日期。成功返回 datetime，失败返回 None。
+
+    支持的格式：
+      - 完整日期：YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYYMMDD / YYYY年M月D日
+      - 月份级（含年份）：YYYY年M月 / YYYY年五月（取该月最后一天）
+      - 月份级（无年份，默认当前年）：5月 / 五月 / 5月份 / 五月份（取该月最后一天）
+    """
     name = str(sheet_name).strip()
-    for pattern in DATE_PATTERNS:
+
+    for pattern, kind in FULL_DATE_PATTERNS:
         m = re.match(pattern, name)
-        if m:
-            try:
+        if not m:
+            continue
+        try:
+            if kind == 'ymd':
                 y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
                 return datetime(y, mo, d)
-            except ValueError:
+        except ValueError:
+            return None
+
+    for pattern, kind in MONTH_DATE_PATTERNS:
+        m = re.match(pattern, name)
+        if not m:
+            continue
+        try:
+            if kind == 'ym_num':
+                y, mo = int(m.group(1)), int(m.group(2))
+            elif kind == 'ym_cn':
+                y = int(m.group(1))
+                mo = _cn_month_to_int(m.group(2))
+                if mo is None:
+                    return None
+            elif kind == 'm_num':
+                y = datetime.now().year
+                mo = int(m.group(1))
+            elif kind == 'm_cn':
+                y = datetime.now().year
+                mo = _cn_month_to_int(m.group(1))
+                if mo is None:
+                    return None
+            else:
+                continue
+
+            if not (1 <= mo <= 12):
                 return None
+            d = _last_day_of_month(y, mo)
+            return datetime(y, mo, d)
+        except ValueError:
+            return None
+
     return None
 
 
@@ -111,6 +175,23 @@ def api_scan():
     })
 
 
+def _default_browse_root():
+    """选择一个可访问的起始目录。"""
+    candidates = [
+        os.path.expanduser('~'),
+        os.getcwd(),
+        '/',
+    ]
+    seen = set()
+    for p in candidates:
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        if os.path.isdir(p) and os.access(p, os.R_OK | os.X_OK):
+            return p
+    return '/'
+
+
 @app.route('/api/browse', methods=['POST'])
 def api_browse():
     """列出某目录下的子目录，便于在前端逐级选择文件夹。"""
@@ -118,28 +199,58 @@ def api_browse():
     path = (data.get('path') or '').strip()
 
     if not path:
-        # 默认从用户主目录开始
-        path = os.path.expanduser('~')
+        path = _default_browse_root()
+
     if not os.path.isdir(path):
-        return jsonify({'error': '路径不存在'}), 400
+        return jsonify({'error': f'路径不存在：{path}'}), 400
+
+    if not os.access(path, os.R_OK):
+        return jsonify({
+            'error': f'无权限访问该目录：{path}',
+            'current': path,
+            'parent': os.path.dirname(path) if os.path.dirname(path) != path else None,
+            'dirs': [],
+            'permission_denied': True,
+        }), 200
 
     try:
         entries = sorted(os.listdir(path))
     except PermissionError:
-        return jsonify({'error': '无权限访问该目录'}), 403
+        return jsonify({
+            'error': f'无权限读取目录内容：{path}',
+            'current': path,
+            'parent': os.path.dirname(path) if os.path.dirname(path) != path else None,
+            'dirs': [],
+            'permission_denied': True,
+        }), 200
 
     dirs = []
+    skipped = 0
     for name in entries:
+        if name.startswith('.'):
+            continue
         full = os.path.join(path, name)
-        if os.path.isdir(full) and not name.startswith('.'):
-            dirs.append({'name': name, 'path': full})
+        try:
+            if os.path.isdir(full) and os.access(full, os.R_OK | os.X_OK):
+                dirs.append({'name': name, 'path': full})
+            else:
+                skipped += 1
+        except (PermissionError, OSError):
+            skipped += 1
+            continue
 
     parent = os.path.dirname(path)
-    return jsonify({
+    parent = parent if parent and parent != path else None
+
+    result = {
         'current': path,
-        'parent': parent if parent and parent != path else None,
+        'parent': parent,
         'dirs': dirs,
-    })
+    }
+    if skipped > 0:
+        result['skipped'] = skipped
+        result['hint'] = f'有 {skipped} 个项目因权限不足或不可读而被跳过'
+    return jsonify(result)
 
 
 @app.route('/api/merge', methods=['POST'])
