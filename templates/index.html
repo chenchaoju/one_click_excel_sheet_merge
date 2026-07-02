@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 表合并工具</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                         "Microsoft YaHei", sans-serif;
+            margin: 0;
+            padding: 32px 16px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%);
+            color: #2c3e50;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+            padding: 32px;
+        }
+        h1 {
+            margin: 0 0 8px;
+            font-size: 24px;
+            color: #1a73e8;
+        }
+        .subtitle {
+            color: #606770;
+            font-size: 14px;
+            margin: 0 0 24px;
+        }
+        .field {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus { border-color: #1a73e8; }
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+            font-weight: 500;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #e8f0fe; color: #1a73e8; }
+        .btn-secondary:hover:not(:disabled) { background: #d2e3fc; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #1557b0; }
+        .btn-success { background: #34a853; color: #fff; }
+        .btn-success:hover:not(:disabled) { background: #2d8e47; }
+
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .summary {
+            display: flex;
+            gap: 16px;
+            margin: 16px 0;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: #f8f9fa;
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
+            padding: 12px 18px;
+            min-width: 100px;
+        }
+        .stat .num { font-size: 22px; font-weight: 600; color: #1a73e8; }
+        .stat .label { font-size: 12px; color: #606770; }
+
+        .browser {
+            margin-top: 8px;
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            background: #fff;
+        }
+        .browser-header {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e8eaed;
+            font-size: 13px;
+            color: #606770;
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+        }
+        .browser-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        .browser-item:hover { background: #f1f3f4; }
+        .browser-item.parent { color: #1a73e8; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid #e8eaed;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #5f6368;
+        }
+        tr:hover td { background: #fafbfc; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge.ok { background: #e6f4ea; color: #137333; }
+        .badge.skipped { background: #fef7e0; color: #b06000; }
+        .badge.error { background: #fce8e6; color: #c5221f; }
+
+        .message {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+        .message.error { background: #fce8e6; color: #c5221f; display: block; }
+        .message.info { background: #e8f0fe; color: #1a73e8; display: block; }
+
+        .loading {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .result-section { margin-top: 24px; }
+        .hidden { display: none; }
+
+        footer {
+            margin-top: 24px;
+            text-align: center;
+            color: #9aa0a6;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Excel 表合并工具</h1>
+        <p class="subtitle">
+            选择一个文件夹，自动扫描其中所有 Excel 文件，
+            取每个文件中日期最新的子表，合并为一个 Excel 文件。
+            非日期命名的子表会被自动跳过。
+        </p>
+
+        <div class="field">
+            <input type="text" id="folder" placeholder="请输入文件夹路径，例如 /home/user/data 或 C:\data">
+            <button class="btn-secondary" id="browse-btn">浏览</button>
+            <button class="btn-secondary" id="scan-btn">扫描</button>
+        </div>
+
+        <div class="browser hidden" id="browser">
+            <div class="browser-header" id="browser-current"></div>
+            <div id="browser-list"></div>
+        </div>
+
+        <div class="message" id="msg"></div>
+
+        <div class="result-section hidden" id="result-section">
+            <div class="summary" id="summary"></div>
+            <div class="actions">
+                <button class="btn-success" id="merge-btn">合并并下载</button>
+            </div>
+            <table id="result-table">
+                <thead>
+                    <tr>
+                        <th>文件名</th>
+                        <th>状态</th>
+                        <th>选取子表</th>
+                        <th>日期</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <footer>
+            支持的日期格式：YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYYMMDD / YYYY年M月D日
+        </footer>
+    </div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const msg = $('msg');
+        const resultSection = $('result-section');
+
+        function showMessage(text, type) {
+            msg.className = 'message ' + type;
+            msg.textContent = text;
+        }
+        function clearMessage() { msg.className = 'message'; msg.textContent = ''; }
+
+        async function postJSON(url, body) {
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            return r;
+        }
+
+        // 浏览文件夹
+        $('browse-btn').addEventListener('click', async () => {
+            const path = $('folder').value.trim() || '';
+            const browser = $('browser');
+            browser.classList.remove('hidden');
+            $('browser-list').innerHTML = '<div class="browser-item">加载中...</div>';
+            try {
+                const r = await postJSON('/api/browse', { path });
+                const data = await r.json();
+                if (!r.ok) {
+                    $('browser-list').innerHTML = `<div class="browser-item">${data.error || '出错'}</div>`;
+                    return;
+                }
+                $('browser-current').textContent = '当前目录：' + data.current;
+                let html = '';
+                if (data.parent) {
+                    html += `<div class="browser-item parent" data-path="${data.parent}">⬆ 返回上级</div>`;
+                }
+                if (data.dirs.length === 0 && !data.parent) {
+                    html += '<div class="browser-item">没有子目录</div>';
+                }
+                data.dirs.forEach(d => {
+                    html += `<div class="browser-item" data-path="${d.path}">📁 ${d.name}</div>`;
+                });
+                $('browser-list').innerHTML = html;
+                // 选择当前目录
+                const useCur = document.createElement('div');
+                useCur.className = 'browser-item parent';
+                useCur.style.borderTop = '1px solid #e8eaed';
+                useCur.textContent = '✓ 选择此目录';
+                useCur.addEventListener('click', () => {
+                    $('folder').value = data.current;
+                    browser.classList.add('hidden');
+                });
+                $('browser-list').appendChild(useCur);
+
+                document.querySelectorAll('.browser-item[data-path]').forEach(el => {
+                    el.addEventListener('click', () => {
+                        $('folder').value = el.dataset.path;
+                        // 自动跳到该目录
+                        $('browse-btn').click();
+                    });
+                });
+                if (!data.parent && data.dirs.length === 0) {
+                    // no-op
+                }
+            } catch (e) {
+                $('browser-list').innerHTML = '<div class="browser-item">请求失败</div>';
+            }
+        });
+
+        // 扫描
+        $('scan-btn').addEventListener('click', async () => {
+            const folder = $('folder').value.trim();
+            if (!folder) { showMessage('请先填写文件夹路径', 'error'); return; }
+            $('scan-btn').disabled = true;
+            $('scan-btn').innerHTML = '<span class="loading"></span>扫描中';
+            clearMessage();
+            resultSection.classList.add('hidden');
+            try {
+                const r = await postJSON('/api/scan', { folder });
+                const data = await r.json();
+                if (!r.ok) {
+                    showMessage(data.error || '扫描失败', 'error');
+                    return;
+                }
+                renderResults(data);
+            } catch (e) {
+                showMessage('请求失败：' + e, 'error');
+            } finally {
+                $('scan-btn').disabled = false;
+                $('scan-btn').textContent = '扫描';
+            }
+        });
+
+        function renderResults(data) {
+            const summary = $('summary');
+            summary.innerHTML = `
+                <div class="stat"><div class="num">${data.total}</div><div class="label">Excel 文件总数</div></div>
+                <div class="stat"><div class="num" style="color:#137333">${data.ok}</div><div class="label">将合并</div></div>
+                <div class="stat"><div class="num" style="color:#b06000">${data.skipped}</div><div class="label">跳过</div></div>
+            `;
+            const tbody = document.querySelector('#result-table tbody');
+            tbody.innerHTML = data.items.map(it => {
+                let badge, sheet = '', date = '', reason = '';
+                if (it.status === 'ok') {
+                    badge = '<span class="badge ok">OK</span>';
+                    sheet = it.sheet || '';
+                    date = it.date || '';
+                } else if (it.status === 'skipped') {
+                    badge = '<span class="badge skipped">跳过</span>';
+                    reason = it.reason || '';
+                } else {
+                    badge = '<span class="badge error">错误</span>';
+                    reason = it.reason || '';
+                }
+                return `<tr>
+                    <td>${escapeHtml(it.file)}</td>
+                    <td>${badge}</td>
+                    <td>${escapeHtml(sheet)}</td>
+                    <td>${escapeHtml(date)}</td>
+                    <td>${escapeHtml(reason)}</td>
+                </tr>`;
+            }).join('');
+            resultSection.classList.remove('hidden');
+            if (data.ok === 0) {
+                showMessage('没有可合并的文件（全部被跳过）', 'error');
+            } else {
+                showMessage(`已找到 ${data.ok} 个可合并的文件，点击下方按钮开始合并`, 'info');
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // 合并并下载
+        $('merge-btn').addEventListener('click', async () => {
+            const folder = $('folder').value.trim();
+            if (!folder) { showMessage('请先填写文件夹路径', 'error'); return; }
+            $('merge-btn').disabled = true;
+            $('merge-btn').innerHTML = '<span class="loading"></span>合并中...';
+            try {
+                const r = await fetch('/api/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder }),
+                });
+                if (!r.ok) {
+                    const data = await r.json().catch(() => ({}));
+                    showMessage(data.error || '合并失败', 'error');
+                    return;
+                }
+                const blob = await r.blob();
+                const cd = r.headers.get('Content-Disposition') || '';
+                const m = /filename\*?=(?:UTF-8'')?["']?([^;"']+)["']?/i.exec(cd);
+                const filename = m ? decodeURIComponent(m[1]) : '合并结果.xlsx';
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showMessage('合并完成，文件已开始下载', 'info');
+            } catch (e) {
+                showMessage('请求失败：' + e, 'error');
+            } finally {
+                $('merge-btn').disabled = false;
+                $('merge-btn').textContent = '合并并下载';
+            }
+        });
+    </script>
+</body>
+</html>
