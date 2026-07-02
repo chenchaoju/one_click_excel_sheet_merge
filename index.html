@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 表合并工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                         "Microsoft YaHei", sans-serif;
+            margin: 0;
+            padding: 32px 16px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%);
+            color: #2c3e50;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+            padding: 32px;
+        }
+        h1 {
+            margin: 0 0 8px;
+            font-size: 24px;
+            color: #1a73e8;
+        }
+        .subtitle {
+            color: #606770;
+            font-size: 14px;
+            margin: 0 0 24px;
+        }
+        .field {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus { border-color: #1a73e8; }
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+            font-weight: 500;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #e8f0fe; color: #1a73e8; }
+        .btn-secondary:hover:not(:disabled) { background: #d2e3fc; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #1557b0; }
+        .btn-success { background: #34a853; color: #fff; }
+        .btn-success:hover:not(:disabled) { background: #2d8e47; }
+
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .summary {
+            display: flex;
+            gap: 16px;
+            margin: 16px 0;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: #f8f9fa;
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
+            padding: 12px 18px;
+            min-width: 100px;
+        }
+        .stat .num { font-size: 22px; font-weight: 600; color: #1a73e8; }
+        .stat .label { font-size: 12px; color: #606770; }
+
+        .browser {
+            margin-top: 8px;
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            background: #fff;
+        }
+        .browser-header {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e8eaed;
+            font-size: 13px;
+            color: #606770;
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+        }
+        .browser-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        .browser-item:hover { background: #f1f3f4; }
+        .browser-item.parent { color: #1a73e8; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid #e8eaed;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #5f6368;
+        }
+        tr:hover td { background: #fafbfc; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge.ok { background: #e6f4ea; color: #137333; }
+        .badge.skipped { background: #fef7e0; color: #b06000; }
+        .badge.error { background: #fce8e6; color: #c5221f; }
+
+        .message {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+        .message.error { background: #fce8e6; color: #c5221f; display: block; }
+        .message.info { background: #e8f0fe; color: #1a73e8; display: block; }
+
+        .loading {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .result-section { margin-top: 24px; }
+        .hidden { display: none; }
+
+        footer {
+            margin-top: 24px;
+            text-align: center;
+            color: #9aa0a6;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Excel 表合并工具</h1>
+        <p class="subtitle">
+            选择一个文件夹，自动扫描其中所有 Excel 文件，
+            取每个文件中日期最新的子表，合并为一个 Excel 文件。
+            非日期命名的子表会被自动跳过。
+        </p>
+
+        <div class="field">
+            <input type="text" id="folder" placeholder="请输入文件夹路径，例如 /home/user/data 或 C:\data">
+            <button class="btn-secondary" id="browse-btn">浏览</button>
+            <button class="btn-secondary" id="scan-btn">扫描</button>
+        </div>
+
+        <input type="file" id="folder-input" style="display:none" webkitdirectory directory multiple>
+
+        <div class="browser hidden" id="browser">
+            <div class="browser-header" id="browser-current"></div>
+            <div id="browser-list"></div>
+        </div>
+
+        <div class="message" id="msg"></div>
+
+        <div class="result-section hidden" id="result-section">
+            <div class="summary" id="summary"></div>
+            <div class="actions">
+                <button class="btn-success" id="merge-btn">合并并下载</button>
+            </div>
+            <table id="result-table">
+                <thead>
+                    <tr>
+                        <th>文件名</th>
+                        <th>状态</th>
+                        <th>选取子表</th>
+                        <th>日期</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <footer>
+            支持的日期格式：YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD / YYYYMMDD / YYYY年M月D日
+            <br>
+            月份级命名也支持：5月 / 五月 / 5月份 / 五月份 / 2024年5月 / 2024年五月
+        </footer>
+    </div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const msg = $('msg');
+        const resultSection = $('result-section');
+
+        let selectedFiles = [];
+        let scanResults = [];
+
+        function showMessage(text, type) {
+            msg.className = 'message ' + type;
+            msg.textContent = text;
+        }
+        function clearMessage() { msg.className = 'message'; msg.textContent = ''; }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // ========== 日期识别 ==========
+        const DATE_LIKE_PATTERNS = [
+            /\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/,
+            /\d{8}/,
+            /\d{4}年\d{1,2}月\d{1,2}日/,
+            /\d{4}[-/.]\d{1,2}/,
+            /\d{4}年\d{1,2}月/,
+            /\d{4}年\d{1,2}月份/,
+            /\d{4}年[一二三四五六七八九十]{1,3}月/,
+            /\d{4}年[一二三四五六七八九十]{1,3}月份/,
+            /^\d{1,2}月/,
+            /^[一二三四五六七八九十]{1,3}月/,
+            /^\d{1,2}月份/,
+            /^[一二三四五六七八九十]{1,3}月份/,
+        ];
+
+        function isDateLike(sheetName) {
+            const name = String(sheetName || '').trim();
+            if (!name) return false;
+            for (const pattern of DATE_LIKE_PATTERNS) {
+                if (pattern.test(name)) return true;
+            }
+            return false;
+        }
+
+        // ========== 文件处理 ==========
+        function isExcelFile(file) {
+            const name = file.name.toLowerCase();
+            return name.endsWith('.xlsx') || name.endsWith('.xls');
+        }
+
+        function readExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const wb = XLSX.read(data, { type: 'array' });
+                        resolve(wb);
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.onerror = () => reject(reader.error);
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function findLastDateSheet(wb) {
+            let lastName = null;
+            for (const sheetName of wb.SheetNames) {
+                if (isDateLike(sheetName)) {
+                    lastName = sheetName;
+                }
+            }
+            return lastName ? { sheetName: lastName } : null;
+        }
+
+        function sheetToRows(wb, sheetName) {
+            const ws = wb.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+            return json;
+        }
+
+        // ========== UI 交互 ==========
+        $('browse-btn').addEventListener('click', () => {
+            $('folder-input').click();
+        });
+
+        $('folder-input').addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            const excelFiles = files.filter(isExcelFile);
+            selectedFiles = excelFiles;
+
+            if (excelFiles.length === 0) {
+                $('folder').value = '';
+                showMessage('该文件夹中没有找到 Excel 文件', 'error');
+            } else {
+                const first = excelFiles[0];
+                const relPath = first.webkitRelativePath || first.name;
+                const folderName = relPath.split('/')[0] || relPath;
+                $('folder').value = `已选择 ${excelFiles.length} 个 Excel 文件（来自「${folderName}」）`;
+            }
+
+            resultSection.classList.add('hidden');
+            clearMessage();
+        });
+
+        $('scan-btn').addEventListener('click', async () => {
+            if (selectedFiles.length === 0) {
+                showMessage('请先点击浏览选择文件夹', 'error');
+                return;
+            }
+            $('scan-btn').disabled = true;
+            $('scan-btn').innerHTML = '<span class="loading"></span>扫描中';
+            clearMessage();
+            resultSection.classList.add('hidden');
+            scanResults = [];
+
+            try {
+                for (const file of selectedFiles) {
+                    try {
+                        const wb = await readExcelFile(file);
+                        const latest = findLastDateSheet(wb);
+                        if (!latest) {
+                            scanResults.push({
+                                file: file.name,
+                                status: 'skipped',
+                                reason: '没有找到日期命名的子表',
+                                sheet: '', date: '',
+                            });
+                        } else {
+                            scanResults.push({
+                                file: file.name,
+                                status: 'ok',
+                                sheet: latest.sheetName,
+                                date: '',
+                                reason: '',
+                                wb,
+                                _rows: sheetToRows(wb, latest.sheetName),
+                            });
+                        }
+                    } catch (err) {
+                        scanResults.push({
+                            file: file.name,
+                            status: 'error',
+                            reason: '读取失败: ' + (err.message || err),
+                            sheet: '', date: '',
+                        });
+                    }
+                }
+                renderResults(scanResults);
+            } catch (err) {
+                showMessage('扫描失败：' + (err.message || err), 'error');
+            } finally {
+                $('scan-btn').disabled = false;
+                $('scan-btn').textContent = '扫描';
+            }
+        });
+
+        function renderResults(items) {
+            const total = items.length;
+            const ok = items.filter(i => i.status === 'ok').length;
+            const skipped = items.filter(i => i.status === 'skipped').length;
+            const errored = items.filter(i => i.status === 'error').length;
+
+            const summary = $('summary');
+            summary.innerHTML = `
+                <div class="stat"><div class="num">${total}</div><div class="label">Excel 文件总数</div></div>
+                <div class="stat"><div class="num" style="color:#137333">${ok}</div><div class="label">将合并</div></div>
+                <div class="stat"><div class="num" style="color:#b06000">${skipped}</div><div class="label">跳过</div></div>
+                ${errored > 0 ? `<div class="stat"><div class="num" style="color:#c5221f">${errored}</div><div class="label">错误</div></div>` : ''}
+            `;
+
+            const tbody = document.querySelector('#result-table tbody');
+            tbody.innerHTML = items.map(it => {
+                let badge;
+                if (it.status === 'ok') {
+                    badge = '<span class="badge ok">OK</span>';
+                } else if (it.status === 'skipped') {
+                    badge = '<span class="badge skipped">跳过</span>';
+                } else {
+                    badge = '<span class="badge error">错误</span>';
+                }
+                return `<tr>
+                    <td>${escapeHtml(it.file)}</td>
+                    <td>${badge}</td>
+                    <td>${escapeHtml(it.sheet || '')}</td>
+                    <td>${escapeHtml(it.date || '')}</td>
+                    <td>${escapeHtml(it.reason || '')}</td>
+                </tr>`;
+            }).join('');
+
+            resultSection.classList.remove('hidden');
+            if (ok === 0) {
+                showMessage('没有可合并的文件（全部被跳过或出错）', 'error');
+            } else {
+                showMessage(`已找到 ${ok} 个可合并的文件，点击下方按钮开始合并`, 'info');
+            }
+        }
+
+        $('merge-btn').addEventListener('click', () => {
+            const okItems = scanResults.filter(i => i.status === 'ok' && i._rows && i._rows.length > 0);
+            if (okItems.length === 0) {
+                showMessage('没有可合并的数据', 'error');
+                return;
+            }
+
+            $('merge-btn').disabled = true;
+            $('merge-btn').innerHTML = '<span class="loading"></span>合并中...';
+
+            try {
+                const wb = XLSX.utils.book_new();
+                const usedNames = new Set();
+
+                for (const item of okItems) {
+                    if (!item._rows || item._rows.length < 1) continue;
+
+                    let sheetName = item.sheet;
+                    if (!sheetName) {
+                        sheetName = item.file.replace(/\.[^.]+$/, '');
+                    }
+                    if (usedNames.has(sheetName)) {
+                        let suffix = 2;
+                        while (usedNames.has(sheetName + suffix)) suffix++;
+                        sheetName = sheetName + suffix;
+                    }
+                    if (sheetName.length > 31) {
+                        sheetName = sheetName.substring(0, 28) + '...';
+                    }
+                    usedNames.add(sheetName);
+
+                    const ws = XLSX.utils.aoa_to_sheet(item._rows);
+                    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+                }
+
+                const now = new Date();
+                const ts = now.getFullYear() +
+                    String(now.getMonth() + 1).padStart(2, '0') +
+                    String(now.getDate()).padStart(2, '0') + '_' +
+                    String(now.getHours()).padStart(2, '0') +
+                    String(now.getMinutes()).padStart(2, '0') +
+                    String(now.getSeconds()).padStart(2, '0');
+                const filename = `合并结果_${ts}.xlsx`;
+
+                XLSX.writeFile(wb, filename);
+                showMessage(`合并完成，共 ${okItems.length} 个子表，文件已开始下载`, 'info');
+            } catch (err) {
+                showMessage('合并失败：' + (err.message || err), 'error');
+            } finally {
+                $('merge-btn').disabled = false;
+                $('merge-btn').textContent = '合并并下载';
+            }
+        });
+    </script>
+</body>
+</html>
